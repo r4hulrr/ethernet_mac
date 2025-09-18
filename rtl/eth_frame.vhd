@@ -11,7 +11,8 @@ entity eth_frame is
     port(
         tx_clk  : in std_logic; 
         i_en    : in std_logic; -- enable pin to trigger eth transmission
-        o_data  : out std_logic_vector(7 downto 0)
+        o_en    : out std_logic;
+        o_data  : out std_logic_vector(3 downto 0)
     );
 end entity;
 
@@ -27,6 +28,10 @@ architecture behavioural of eth_frame is
     signal data_count : integer range 0 to 1500 := 0;
     signal crc_count : integer range 0 to 4 := 0;
     signal ipg_count : integer range 0 to 12 := 0;
+    signal sig_en   : std_logic := '0';
+    -- Nibble tx enable 
+    signal nibble_en : std_logic := '0';
+    signal TXD   : std_logic_vector(3 downto 0);
     -- CRC signals
     signal sig_crc : std_logic_vector(31 downto 0) := (others => '1');
     
@@ -50,17 +55,27 @@ architecture behavioural of eth_frame is
         return c;
     end function;
 begin
+    nibble_gen : process(tx_clk)
+    begin
+        if rising_edge(tx_clk) then
+            nibble_en <= not nibble_en;
+        end if;
+    end process;
+      
     frame_gen: process(tx_clk)
         variable var_data : std_logic_vector(7 downto 0) := x"00";
         variable var_crc : std_logic_vector(31 downto 0) := (others => '1');
+        variable var_en : std_logic := '0';
     begin
-        if rising_edge(tx_clk) then
+        
+        if rising_edge(tx_clk) and nibble_en = '1' then
             case(state) is
                 when IDLE =>
                     -- if enable pin high then start sending preamble immediately
                     -- preamble is always alternating 0s and 1s
                     if (i_en = '1') then
                         state       <= PREAMBLE;
+                        var_en      := '1';
                         var_data    := "10101010";
                     end if;
                 
@@ -141,6 +156,7 @@ begin
                     end if;
                     
                 when IPG =>
+                    var_en := '0';
                     if ipg_count < 11 then
                         var_data := x"00";
                         ipg_count <= ipg_count + 1;
@@ -159,11 +175,20 @@ begin
               var_crc := crc32_update(var_crc, var_data);  -- byte-wise LFSR function, LSB-first
             end if;
             
+            sig_en <= var_en;
             sig_crc <= var_crc;
             sig_data <= var_data;
         end if;
     end process;
+    
+    o_en <= sig_en;
+    
+    with nibble_en select
+        TXD <= sig_data(3 downto 0) when '0',
+               sig_data(7 downto 4) when '1',
+               sig_data(3 downto 0) when others;
+    
     -- this logic is used to prevent one cycle latency from when 
     -- the enable is triggered
-    o_data <= sig_data;
+    o_data <= TXD;
 end behavioural;

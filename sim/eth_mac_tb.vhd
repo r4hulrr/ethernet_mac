@@ -14,19 +14,22 @@ architecture Behavioral of eth_mac_tb is
         port(
             tx_clk  : in std_logic := '0'; 
             i_en    : in std_logic := '0'; -- enable pin to trigger eth transmission
-            o_data  : out std_logic_vector(7 downto 0)
+            o_en    : out std_logic := '0';
+            o_data  : out std_logic_vector(3 downto 0)
         );
     end component;
     -- signals
     signal tx_clk   : std_logic := '1';
     signal i_en     : std_logic := '0';
-    signal o_data   : std_logic_vector(7 downto 0);
+    signal o_data   : std_logic_vector(3 downto 0);
+    signal o_en     : std_logic := '0';
 begin
     eth_frame_instance : entity work.eth_frame
     port map (
         tx_clk => tx_clk,
         i_en   => i_en,
-        o_data => o_data
+        o_data => o_data,
+        o_en   => o_en
     );
     
     process
@@ -37,7 +40,7 @@ begin
     
     process
     begin
-        wait for 40ns;
+        wait for 120ns;
         i_en <= '1';
     end process;
 end Behavioral;
