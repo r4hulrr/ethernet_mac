@@ -17,17 +17,19 @@ end entity;
 
 architecture behavioural of eth_frame is
     type state_t is (IDLE, PREAMBLE, SFD, DEST_ADDR, SRC_ADDR,
-                    LENGTH, DATA, CRC);
+                    LENGTH, DATA, CRC, IPG);
     signal state : state_t := IDLE;
     signal sig_data : std_logic_vector(7 downto 0) := x"00";
     signal preamble_count : integer range 0 to 5 := 0;
     signal dest_count : integer range 0 to 6 := 0;
     signal src_count : integer range 0 to 6 := 0;
     signal length_count : integer range 0 to 2 := 0;
-    signal data_count : integer range 0 to 20 := 0;
+    signal data_count : integer range 0 to 1500 := 0;
+    signal crc_count : integer range 0 to 4 := 0;
+    signal ipg_count : integer range 0 to 12 := 0;
     -- CRC signals
     signal sig_crc : std_logic_vector(31 downto 0) := (others => '1');
-    signal sig_running_crc : std_logic_vector(31 downto 0) := (others => '1'); -- to probe the var
+    
     -- function to calculate CRC
     function crc32_update(
         crc     : std_logic_vector(31 downto 0);
@@ -73,6 +75,7 @@ begin
                     else
                         -- this would be the last preamble byte left
                         var_data := "10101010";
+                        preamble_count <= 0;
                         state <= SFD;
                     end if;
                 
@@ -89,6 +92,7 @@ begin
                         dest_count <= dest_count + 1;
                     else
                         var_data := "11000011";
+                        dest_count <= 0;
                         state <= SRC_ADDR;
                     end if;
                 
@@ -100,6 +104,7 @@ begin
                         src_count <= src_count + 1;
                     else
                         var_data := "01000010";
+                        src_count <= 0;
                         state <= LENGTH;
                     end if;
                 
@@ -111,6 +116,7 @@ begin
                         length_count <= length_count + 1;
                     else
                         var_data := "00000000";
+                        length_count <= 0;
                         state <= DATA;
                     end if;
                 
@@ -120,12 +126,30 @@ begin
                         data_count <= data_count + 1;
                     else
                         var_data := "10000001";
+                        data_count <= 0;
                         state <= CRC;
                     end if;
                 
                 when CRC =>
-                    state <= IDLE;
-                    sig_crc <= not var_crc;
+                    if crc_count < 3 then
+                        var_data := not var_crc((8 * crc_count + 7) downto (8 * crc_count)); -- 7 downto 0 | 15 downto 8 | 23 downto 16 | 31 downto 24
+                        crc_count <= crc_count + 1;
+                    else
+                        var_data := not var_crc((8 * crc_count + 7) downto (8 * crc_count));
+                        crc_count <= 0;
+                        state <= IPG;
+                    end if;
+                    
+                when IPG =>
+                    if ipg_count < 11 then
+                        var_data := x"00";
+                        ipg_count <= ipg_count + 1;
+                    else 
+                        var_data := x"00";
+                        ipg_count <= 0;
+                        state <= IDLE;
+                    end if;
+                    
                 when others =>
                     state <= IDLE;
                     
@@ -135,7 +159,7 @@ begin
               var_crc := crc32_update(var_crc, var_data);  -- byte-wise LFSR function, LSB-first
             end if;
             
-            sig_running_crc <= var_crc;
+            sig_crc <= var_crc;
             sig_data <= var_data;
         end if;
     end process;
